@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "ElfManipulator.CLI": {
+      "commandName": "Project",
+      "commandLineArgs": "ys1plus.exe"
+    }
+  }
+}

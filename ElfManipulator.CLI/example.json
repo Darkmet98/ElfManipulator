@@ -1,0 +1,12 @@
+{
+  "ElfPath": "ys1plus.exe",
+  "EncodingId": 1252,
+  "NewSize": 0x100000,
+  "ContainsFixedEntries": false,
+  "PoConfigs": [
+      {
+        "PoPath": "GUI 2.po",
+        "SectionName": ".rdata"
+      }
+  ]
+}
