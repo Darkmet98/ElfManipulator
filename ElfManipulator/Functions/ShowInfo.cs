@@ -6,8 +6,13 @@ namespace ElfManipulator.Functions
 {
     public class ShowInfo
     {
+        /// <summary>
+        /// Generate a text file with all info from the executable.
+        /// </summary>
+        /// <param name="elfPath">executable path.</param>
         public ShowInfo(string elfPath)
         {
+            // Check if the file exists.
             if (!File.Exists(elfPath))
                 throw new FileNotFoundException("The executable file is not found.", elfPath);
 

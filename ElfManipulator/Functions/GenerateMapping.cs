@@ -15,6 +15,14 @@ namespace ElfManipulator.Functions
         private int memDiff;
         private bool containsFixedLengthEntries;
 
+        /// <summary>
+        /// Generate a mapping with all parameters for patching the executable.
+        /// </summary>
+        /// <param name="elfOri">Byte array for the exe.</param>
+        /// <param name="poPassed">Po file.</param>
+        /// <param name="encodingPassed">Encoding for the reader.</param>
+        /// <param name="memDiffPassed">Memory diff for searching the entries.</param>
+        /// <param name="containsFixedLength">If the executable contains fixed length.</param>
         public GenerateMapping(byte[] elfOri, Po poPassed, Encoding encodingPassed, int memDiffPassed, bool containsFixedLength)
         {
             elf = elfOri;
@@ -25,41 +33,56 @@ namespace ElfManipulator.Functions
             data = new List<ElfData>();
         }
 
-        public List<ElfData> Search(int anotherMemDiff = 0)
+        /// <summary>
+        /// Initialize the pointers search.
+        /// </summary>
+        /// <returns>A mapped ElfData with all contents.</returns>
+        public List<ElfData> Search()
         {
-            if (anotherMemDiff != 0)
-                memDiff = anotherMemDiff;
             foreach (var entry in po.Entries)
             {
-                Console.WriteLine($"\nSearching {entry.Original}...");
                 SearchEntry(entry);
             }
 
             return data;
         }
 
+        /// <summary>
+        /// Search the current entry.
+        /// </summary>
+        /// <param name="entry">PoEntry passed</param>
         private void SearchEntry(PoEntry entry)
         {
-            var pattern = findSequence(elf, 0, GetBytesFromString(entry.Original));
+            // Instance the necessary data.
             var positionsLists = new List<int>();
             var withoutZero = false;
             var isFixed = false;
+            var fixedEntrySize = 0;
+            var textArray = encoding.GetBytes($"{entry.Original}\0");
 
-            if (pattern == -1)
+            // Search the text. 
+            var textLocation = findSequence(elf, 0, GetBytesFromString(textArray));
+
+            // Not found, but try to search without the initial zero
+            if (textLocation == -1)
             {
-                pattern = findSequence(elf, 0, GetBytesFromString(entry.Original, true));
-                if (pattern == -1)
-                {
-                    Console.WriteLine($"WARNING: The string: \"{entry.Original}\" is not found on the exe, skipping...");
-                    return;
-                }
+                // Search the text without initial zero.
+                textLocation = findSequence(elf, 0, GetBytesFromString(textArray, true));
+                
+                // Not found.
+                if (textLocation == -1)
+                    throw new Exception($"The string: \"{entry.Original}\" is not found on the exe.");
 
                 withoutZero = true;
             }
 
             // Search for the first time for knowing if is a fixed length entry or pointer based entry.
-            var pointer = pattern + memDiff + (withoutZero ? 0 : 1);
+            var pointer = textLocation + memDiff + (withoutZero ? 0 : 1);
+
+            // Get byte array from the pointer.
             var textPointer = BitConverter.GetBytes(pointer);
+
+            // Search the pointer
             var result = findSequence(elf, 0, textPointer);
 
 
@@ -68,27 +91,37 @@ namespace ElfManipulator.Functions
                 // Not found, but is a fixed length entry.
                 case -1 when containsFixedLengthEntries:
                     isFixed = true;
-                    positionsLists.Add(pattern);
+                    fixedEntrySize = textArray.Length - 1;
+                    positionsLists.Add(textLocation);
+
+                    // Generate the max length size.
+                    var i = textLocation;
+                    do
+                    {
+                        if (elf[i++] == 0)
+                            fixedEntrySize++;
+                        else
+                            break;
+                    } while (true);
                     break;
                 // Not found and the file doesn't contains fixed length entries.
                 case -1 when !containsFixedLengthEntries:
-                    Console.WriteLine($"WARNING: The string pointer \"{entry.Original}\" is not found on the exe, skipping...");
-                    return;
+                    throw new Exception($" The string pointer \"{entry.Original}\" is not found on the exe.");
                 // Found.
                 default:
                 {
-                    Console.WriteLine($"Found: 0x{result:X4}");
                     positionsLists.Add(result);
+
+                    // Get the result as current position.
                     var currentPosition = result;
 
                     do
                     {
                         currentPosition = findSequence(elf, currentPosition + 1, textPointer);
-                        if (currentPosition != -1)
-                        {
-                            Console.WriteLine($"Found: 0x{currentPosition:X4}");
-                            positionsLists.Add(currentPosition);
-                        }
+
+                        if (currentPosition != -1) 
+                                positionsLists.Add(currentPosition);
+
                     } while (currentPosition != -1);
 
                     break;
@@ -100,16 +133,24 @@ namespace ElfManipulator.Functions
             {
                 Text = entry.Translated,
                 positions = positionsLists,
-                FixedLength = isFixed
+                FixedLength = isFixed,
+                EncodingId = encoding.CodePage,
+                SizeFixedLength = fixedEntrySize
             });
         }
 
 
-        private byte[] GetBytesFromString(string text, bool withoutZero = false)
+        /// <summary>
+        /// Get bytes from the current text.
+        /// </summary>
+        /// <param name="text">Original text from the po entry.</param>
+        /// <param name="withoutZero">If contains the initial zero.</param>
+        /// <returns>Text byte array.</returns>
+        private byte[] GetBytesFromString(byte[] text, bool withoutZero = false)
         {
             var startData = withoutZero ? new List<byte>() : new List<byte>() { 0 };
 
-            startData.AddRange(encoding.GetBytes($"{text}\0"));
+            startData.AddRange(text);
 
             return startData.ToArray();
         }
