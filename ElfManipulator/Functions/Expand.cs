@@ -4,7 +4,7 @@ using AsmResolver.PE.File.Headers;
 
 namespace ElfManipulator.Functions
 {
-    internal class Expand
+    public class Expand
     {
         private uint newSize;
         private PEFile peFile;

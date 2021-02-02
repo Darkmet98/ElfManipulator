@@ -1,12 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using ElfManipulator.Data;
+using ElfManipulator.Dictionary;
 using Yarhl.Media.Text;
 
 namespace ElfManipulator.Functions
 {
-    internal class GenerateMapping
+    public class GenerateMapping
     {
         private byte[] elf;
         private Po po;
@@ -14,6 +16,7 @@ namespace ElfManipulator.Functions
         private Encoding encoding;
         private int memDiff;
         private bool containsFixedLengthEntries;
+        private YarhlStringReplacer replacer;
 
         /// <summary>
         /// Generate a mapping with all parameters for patching the executable.
@@ -23,7 +26,9 @@ namespace ElfManipulator.Functions
         /// <param name="encodingPassed">Encoding for the reader.</param>
         /// <param name="memDiffPassed">Memory diff for searching the entries.</param>
         /// <param name="containsFixedLength">If the executable contains fixed length.</param>
-        public GenerateMapping(byte[] elfOri, Po poPassed, Encoding encodingPassed, int memDiffPassed, bool containsFixedLength)
+        /// <param name="dictionaryPathPassed">The path of the dictionary.</param>
+        /// <param name="customDictionary">If the game use a custom dictionary</param>
+        public GenerateMapping(byte[] elfOri, Po poPassed, Encoding encodingPassed, int memDiffPassed, bool containsFixedLength, string dictionaryPathPassed, bool customDictionary = false)
         {
             elf = elfOri;
             po = poPassed;
@@ -31,6 +36,13 @@ namespace ElfManipulator.Functions
             memDiff = memDiffPassed;
             containsFixedLengthEntries = containsFixedLength;
             data = new List<ElfData>();
+            replacer = new YarhlStringReplacer();
+
+            // Check if the exe dictionary file exists.
+            if (customDictionary)
+                return;
+            if (File.Exists(dictionaryPathPassed))
+                replacer.AddDictionary(dictionaryPathPassed);
         }
 
         /// <summary>
@@ -131,14 +143,18 @@ namespace ElfManipulator.Functions
 
             data.Add(new ElfData()
             {
-                Text = entry.Translated,
-                positions = positionsLists,
+                Text = UseDictionary(entry.Translated),
+                Positions = positionsLists,
                 FixedLength = isFixed,
                 EncodingId = encoding.CodePage,
                 SizeFixedLength = fixedEntrySize
             });
         }
 
+        public virtual string UseDictionary(string text)
+        {
+            return replacer.GetModified(text);
+        }
 
         /// <summary>
         /// Get bytes from the current text.

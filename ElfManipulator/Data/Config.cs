@@ -44,5 +44,13 @@ namespace ElfManipulator.Data
         /// Encoding for the writer and mapping.
         /// </summary>
         public int EncodingId { get; set; }
+        /// <summary>
+        /// Path for the dictionary path.
+        /// </summary>
+        public string DictionaryPath { get; set; }
+        /// <summary>
+        /// If the po uses a custom config.
+        /// </summary>
+        public bool CustomDictionary { get; set; }
     }
 }

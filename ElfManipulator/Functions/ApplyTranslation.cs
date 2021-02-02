@@ -52,7 +52,7 @@ namespace ElfManipulator.Functions
         /// </summary>
         /// <param name="pe">Executable PEFile.</param>
         /// <param name="data">IEnumerable of ElfData array.</param>
-        private void WriteContent(PEFile pe, IEnumerable<ElfData[]> data)
+        public void WriteContent(PEFile pe, IEnumerable<ElfData[]> data)
         {
             // Get the new header and calculate the absolute position.
             var tradHeader = pe.Sections.First(x => x.Name == ".trad");
@@ -85,7 +85,7 @@ namespace ElfManipulator.Functions
                     writer.Stream.PushCurrentPosition();
 
                     // Go into the position.
-                    writer.Stream.Position = elfData.positions[0];
+                    writer.Stream.Position = elfData.Positions[0];
 
                     // Write the text.
                     writer.Write(textArray);
@@ -106,7 +106,7 @@ namespace ElfManipulator.Functions
                 writer.Stream.PushCurrentPosition();
 
                 // Go to the positions that contains the text position and update.
-                foreach (var position in elfData.positions)
+                foreach (var position in elfData.Positions)
                 {
                     writer.Stream.Position = position;
                     writer.Write(newPosition);
@@ -185,12 +185,19 @@ namespace ElfManipulator.Functions
                 // Load the po file.
                 var po = NodeFactory.FromFile(configs.PoPath).TransformWith(new Binary2Po()).GetFormatAs<Po>();
 
-                // Pass all arguments and generate the mapping.
-                var mapping = new GenerateMapping(elfArray, po, Encoding.GetEncoding(configs.EncodingId), memDiff, config.ContainsFixedEntries);
-                mappings.Add(mapping.Search().ToArray());
+                
+
+                mappings.Add(GenerateCustomMapping(elfArray, po, configs.EncodingId, memDiff, config.ContainsFixedEntries, configs.DictionaryPath, configs.CustomDictionary));
             }
 
             return mappings;
+        }
+
+        public virtual ElfData[] GenerateCustomMapping(byte[] elfArray, Po po, int encoding, int memDiff, bool containsFixedEntries, string dictionaryPath, bool customDictionary=false)
+        {
+            // Pass all arguments and generate the mapping.
+            var mapping = new GenerateMapping(elfArray, po, Encoding.GetEncoding(encoding), memDiff, containsFixedEntries, dictionaryPath, customDictionary);
+            return mapping.Search().ToArray();
         }
     }
 }

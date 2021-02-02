@@ -6,7 +6,8 @@
     {
       "PoPath": "GUI 2.po",
       "SectionName": ".rdata",
-      "EncodingId": 1252
+      "EncodingId": 1252,
+      "DictionaryPath" :  "Dictionary.txt" 
     }
   ]
 }

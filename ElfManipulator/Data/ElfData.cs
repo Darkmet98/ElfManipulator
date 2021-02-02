@@ -5,12 +5,12 @@ namespace ElfManipulator.Data
     /// <summary>
     /// Elf data entry to replace with the program.
     /// </summary>
-    internal class ElfData
+    public class ElfData
     {
         /// <summary>
         /// List of positions to replace the current pointer.
         /// </summary>
-        public List<int> positions { get; set; }
+        public List<int> Positions { get; set; }
         /// <summary>
         /// Text to write into the game.
         /// </summary>
@@ -30,7 +30,7 @@ namespace ElfManipulator.Data
 
         public ElfData()
         {
-            positions = new List<int>();
+            Positions = new List<int>();
         }
     }
 }
