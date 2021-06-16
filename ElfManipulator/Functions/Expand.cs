@@ -36,7 +36,7 @@ namespace ElfManipulator.Functions
         private void CreateSection()
         {
             // Create the new section.
-            var section = new PESection(".trad", SectionFlags.MemoryRead | SectionFlags.ContentInitializedData);
+            var section = new PESection(".trad", SectionFlags.MemoryRead | SectionFlags.ContentInitializedData | SectionFlags.MemoryExecute | SectionFlags.MemoryWrite);
 
             // Initialize the data
             var physicalContents = new DataSegment(new byte[newSize]);

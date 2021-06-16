@@ -14,7 +14,9 @@ namespace ElfManipulator.Functions
 {
     public class ApplyTranslation
     {
-        private Config config;
+        protected Config config;
+        public DataWriter Writer { get; set; }
+        public PEFile PeFile { get; set; }
         /// <summary>
         /// Apply the translation into the executable with a config parameter.
         /// </summary>
@@ -43,28 +45,39 @@ namespace ElfManipulator.Functions
         /// </summary>
         public void GenerateElfPatched()
         {
-            var pe = ExpandFile();
-            WriteContent(pe, GenerateMappings(pe));
+            InstancePeFile();
+            WriteContent(GenerateMappings());
+        }
+
+        public void InstanceWriter()
+        {
+            // Get the new header and calculate the absolute position.
+            var tradHeader = PeFile.Sections.First(x => x.Name == ".trad");
+
+            // Initialize the writer.
+            Writer = new DataWriter(DataStreamFactory.FromStream(GenerateStream(PeFile)))
+            {
+                Stream = { Position = (long)tradHeader.Offset }
+            };
+        }
+
+        public void InstancePeFile()
+        {
+            PeFile = ExpandFile();
         }
 
         /// <summary>
         /// Write the translated content into the new partition.
         /// </summary>
-        /// <param name="pe">Executable PEFile.</param>
         /// <param name="data">IEnumerable of ElfData array.</param>
-        public void WriteContent(PEFile pe, IEnumerable<ElfData[]> data)
+        public virtual void WriteContent(IEnumerable<ElfData[]> data, bool writeExe = true)
         {
             // Get the new header and calculate the absolute position.
-            var tradHeader = pe.Sections.First(x => x.Name == ".trad");
-            var memDiff = (int)(pe.OptionalHeader.ImageBase +
+            var tradHeader = PeFile.Sections.First(x => x.Name == ".trad");
+            var memDiff = (int)(PeFile.OptionalHeader.ImageBase +
                                 (tradHeader.Rva - tradHeader.Offset));
 
-            // Initialize the writer.
-            var writer = new DataWriter(DataStreamFactory.FromStream(GenerateStream(pe)))
-            {
-                Stream = {Position = (long) tradHeader.Offset}
-            };
-
+            InstanceWriter();
 
             foreach (var elfData in data.SelectMany(entry => entry))
             {
@@ -72,7 +85,7 @@ namespace ElfManipulator.Functions
                 if (elfData.FixedLength)
                 {
                     // Convert the text into a byte array.
-                    var textArray = Encoding.GetEncoding(elfData.EncodingId).GetBytes(elfData.Text);
+                    var textArray = Encoding.GetEncoding(elfData.EncodingId).GetBytes(elfData.Text+"\0");
 
                     // Check the size
                     if (elfData.SizeFixedLength != 0 && textArray.Length > elfData.SizeFixedLength)
@@ -81,48 +94,56 @@ namespace ElfManipulator.Functions
                                             $"Max length: {elfData.SizeFixedLength}\n" +
                                             $"Current length: {textArray.Length}");
                     }
+
                     // Push current position.
-                    writer.Stream.PushCurrentPosition();
+                    Writer.Stream.PushCurrentPosition();
 
-                    // Go into the position.
-                    writer.Stream.Position = elfData.Positions[0];
+                    foreach (var position in elfData.Positions)
+                    {
+                        // Go into the position.
+                        Writer.Stream.Position = position;
 
-                    // Write the text.
-                    writer.Write(textArray);
+                        // Write the text.
+                        Writer.Write(textArray);
+                    }
 
                     // Return to the previous position.
-                    writer.Stream.PopPosition();
+                    Writer.Stream.PopPosition();
 
                     continue;
                 }
 
                 // Get the new position.
-                var newPosition = (int)writer.Stream.Position + memDiff;
+                var newPosition = (int)Writer.Stream.Position + memDiff;
 
                 // Write the text.
-                writer.Write(elfData.Text, true, Encoding.GetEncoding(elfData.EncodingId));
+                Writer.Write(elfData.Text, true, Encoding.GetEncoding(elfData.EncodingId));
 
                 // Push the current position.
-                writer.Stream.PushCurrentPosition();
+                Writer.Stream.PushCurrentPosition();
 
                 // Go to the positions that contains the text position and update.
                 foreach (var position in elfData.Positions)
                 {
-                    writer.Stream.Position = position;
-                    writer.Write(newPosition);
+                    Writer.Stream.Position = position;
+                    Writer.Write(newPosition);
                 }
 
                 // Return to the previous position.
-                writer.Stream.PopPosition();
+                Writer.Stream.PopPosition();
             }
+
+            if (!writeExe)
+                return;
 
             // Get the current path of the original exe.
             var newExe = (string.IsNullOrWhiteSpace(Path.GetDirectoryName(config.ElfPath)))
                 ? string.Empty
                 : Path.GetDirectoryName(config.ElfPath) + Path.DirectorySeparatorChar;
 
-            // Write the new exe.
-            writer.Stream.WriteTo(newExe + Path.GetFileNameWithoutExtension(config.ElfPath) + "_patched.exe");
+           
+               // Write the new exe.
+               Writer.Stream.WriteTo(newExe + Path.GetFileNameWithoutExtension(config.ElfPath) + "_patched.exe");
         }
 
         /// <summary>
@@ -130,7 +151,7 @@ namespace ElfManipulator.Functions
         /// </summary>
         /// <param name="pe">Executable PEFile.</param>
         /// <returns>MemoryStream with the modified executable.</returns>
-        private MemoryStream GenerateStream(PEFile pe)
+        public MemoryStream GenerateStream(PEFile pe)
         {
             var stream = new MemoryStream();
             pe.Write(stream);
@@ -141,7 +162,7 @@ namespace ElfManipulator.Functions
         /// Expand the executable for write the new content.
         /// </summary>
         /// <returns>A PEFile with the executable expanded.</returns>
-        private PEFile ExpandFile()
+        public PEFile ExpandFile()
         {
             // Check if the exe exists.
             if (!File.Exists(config.ElfPath))
@@ -154,9 +175,8 @@ namespace ElfManipulator.Functions
         /// <summary>
         /// Generate a List of mapping arrays for patching the game.
         /// </summary>
-        /// <param name="peFile">Executable PEFile.</param>
         /// <returns>A list with all data for patch the executable.</returns>
-        private IEnumerable<ElfData[]> GenerateMappings(IPEFile peFile)
+        public IEnumerable<ElfData[]> GenerateMappings()
         {
             var mappings = new List<ElfData[]>();
 
@@ -174,12 +194,12 @@ namespace ElfManipulator.Functions
                     throw new FileNotFoundException("The po file is not found.", configs.PoPath);
 
                 // Check if the exe section exists.
-                if (!peFile.Sections.ToList().Exists(x=>x.Name == configs.SectionName))
+                if (!PeFile.Sections.ToList().Exists(x=>x.Name == configs.SectionName))
                     throw new Exception($"The elf section {configs.SectionName} is not found on the executable.");
 
                 // Get the absolute position from the specified exe section.
-                var translationSection = peFile.Sections.First(x => x.Name == configs.SectionName);
-                var memDiff = (int)(peFile.OptionalHeader.ImageBase +
+                var translationSection = PeFile.Sections.First(x => x.Name == configs.SectionName);
+                var memDiff = (int)(PeFile.OptionalHeader.ImageBase +
                                     (translationSection.Rva - translationSection.Offset));
 
                 // Load the po file.

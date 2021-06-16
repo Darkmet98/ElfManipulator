@@ -11,12 +11,18 @@ namespace ElfManipulator.Functions
     public class GenerateMapping
     {
         private byte[] elf;
-        private Po po;
-        private List<ElfData> data;
+        protected Po po;
+        protected List<ElfData> data;
         private Encoding encoding;
         private int memDiff;
         private bool containsFixedLengthEntries;
         private YarhlStringReplacer replacer;
+
+        private List<int> positionsLists;
+        private bool withoutZero;
+        private bool isFixed;
+        int fixedEntrySize;
+        private byte[] textArray;
 
         /// <summary>
         /// Generate a mapping with all parameters for patching the executable.
@@ -41,15 +47,20 @@ namespace ElfManipulator.Functions
             // Check if the exe dictionary file exists.
             if (customDictionary)
                 return;
-            if (File.Exists(dictionaryPathPassed))
-                replacer.AddDictionary(dictionaryPathPassed);
+            AddDictionary(dictionaryPathPassed);
+        }
+
+        protected void AddDictionary(string dictionaryPassed)
+        {
+            if (File.Exists(dictionaryPassed))
+                replacer.AddDictionary(dictionaryPassed);
         }
 
         /// <summary>
         /// Initialize the pointers search.
         /// </summary>
         /// <returns>A mapped ElfData with all contents.</returns>
-        public List<ElfData> Search()
+        public virtual List<ElfData> Search()
         {
             foreach (var entry in po.Entries)
             {
@@ -63,14 +74,13 @@ namespace ElfManipulator.Functions
         /// Search the current entry.
         /// </summary>
         /// <param name="entry">PoEntry passed</param>
-        private void SearchEntry(PoEntry entry)
+        protected void SearchEntry(PoEntry entry, bool fixedEntry = false)
         {
             // Instance the necessary data.
-            var positionsLists = new List<int>();
-            var withoutZero = false;
-            var isFixed = false;
-            var fixedEntrySize = 0;
-            var textArray = encoding.GetBytes($"{entry.Original}\0");
+            positionsLists = new List<int>();
+            withoutZero = false;
+            fixedEntrySize = 0;
+            textArray = encoding.GetBytes($"{entry.Original}\0");
 
             // Search the text. 
             var textLocation = findSequence(elf, 0, GetBytesFromString(textArray));
@@ -88,6 +98,58 @@ namespace ElfManipulator.Functions
                 withoutZero = true;
             }
 
+            // Is a fixed entry.
+            if (fixedEntry)
+            {
+                textLocation++;
+                SearchFixedEntry(textLocation);
+            }
+            else
+            {
+               SearchPointerBasedEntry(textLocation, entry.Original);
+            }
+            
+            data.Add(new ElfData()
+            {
+                Text = UseDictionary(entry.Text),
+                Positions = positionsLists,
+                FixedLength = isFixed,
+                EncodingId = encoding.CodePage,
+                SizeFixedLength = fixedEntrySize
+            });
+        }
+
+        protected virtual void SearchFixedEntry(int textLocation)
+        {
+            isFixed = true;
+            fixedEntrySize = textArray.Length - 1;
+            positionsLists.Add(textLocation);
+
+            // Generate the max length size.
+            var i = textLocation + (textArray.Length - 1);
+            do
+            {
+                if (elf[i++] == 0)
+                    fixedEntrySize++;
+                else
+                    break;
+
+            } while (true);
+
+            // Search again for more entries
+            var bytes = GetBytesFromString(textArray);
+            do
+            {
+                textLocation = findSequence(elf, textLocation + 1, bytes);
+
+                if (textLocation != -1)
+                    positionsLists.Add(textLocation + 1);
+
+            } while (textLocation != -1);
+        }
+
+        protected virtual void SearchPointerBasedEntry(int textLocation, string textOriginal)
+        {
             // Search for the first time for knowing if is a fixed length entry or pointer based entry.
             var pointer = textLocation + memDiff + (withoutZero ? 0 : 1);
 
@@ -97,61 +159,39 @@ namespace ElfManipulator.Functions
             // Search the pointer
             var result = findSequence(elf, 0, textPointer);
 
-
             switch (result)
             {
                 // Not found, but is a fixed length entry.
                 case -1 when containsFixedLengthEntries:
-                    isFixed = true;
-                    fixedEntrySize = textArray.Length - 1;
-                    positionsLists.Add(textLocation);
-
-                    // Generate the max length size.
-                    var i = textLocation;
-                    do
-                    {
-                        if (elf[i++] == 0)
-                            fixedEntrySize++;
-                        else
-                            break;
-                    } while (true);
+                    textLocation++;
+                    SearchFixedEntry(textLocation);
                     break;
                 // Not found and the file doesn't contains fixed length entries.
                 case -1 when !containsFixedLengthEntries:
-                    throw new Exception($" The string pointer \"{entry.Original}\" is not found on the exe.");
+                    throw new Exception($" The string pointer \"{textOriginal}\" is not found on the exe.");
                 // Found.
                 default:
-                {
-                    positionsLists.Add(result);
-
-                    // Get the result as current position.
-                    var currentPosition = result;
-
-                    do
                     {
-                        currentPosition = findSequence(elf, currentPosition + 1, textPointer);
+                        positionsLists.Add(result);
 
-                        if (currentPosition != -1) 
+                        // Get the result as current position.
+                        var currentPosition = result;
+
+                        do
+                        {
+                            currentPosition = findSequence(elf, currentPosition + 1, textPointer);
+
+                            if (currentPosition != -1)
                                 positionsLists.Add(currentPosition);
 
-                    } while (currentPosition != -1);
+                        } while (currentPosition != -1);
 
-                    break;
-                }
+                        break;
+                    }
             }
-
-
-            data.Add(new ElfData()
-            {
-                Text = UseDictionary(entry.Translated),
-                Positions = positionsLists,
-                FixedLength = isFixed,
-                EncodingId = encoding.CodePage,
-                SizeFixedLength = fixedEntrySize
-            });
         }
 
-        public virtual string UseDictionary(string text)
+        protected virtual string UseDictionary(string text)
         {
             return replacer.GetModified(text);
         }
@@ -162,7 +202,7 @@ namespace ElfManipulator.Functions
         /// <param name="text">Original text from the po entry.</param>
         /// <param name="withoutZero">If contains the initial zero.</param>
         /// <returns>Text byte array.</returns>
-        private byte[] GetBytesFromString(byte[] text, bool withoutZero = false)
+        public virtual byte[] GetBytesFromString(byte[] text, bool withoutZero = false)
         {
             var startData = withoutZero ? new List<byte>() : new List<byte>() { 0 };
 
@@ -179,7 +219,7 @@ namespace ElfManipulator.Functions
         /// <returns>
         ///   The index of the next occurrence of the sequence of -1 if not found
         /// </returns>
-        private int findSequence(byte[] array, int start, byte[] sequence)
+        protected virtual int findSequence(byte[] array, int start, byte[] sequence)
         {
             int end = array.Length - sequence.Length; // past here no match is possible
             byte firstByte = sequence[0]; // cached to tell compiler there's no aliasing
