@@ -191,6 +191,13 @@ namespace ElfManipulator.Functions
             }
         }
 
+        protected virtual void SearchLeaEntry()
+        {
+            // First, get a list of LEA functions
+            var leaPositions = new List<int>();
+
+        }
+
         protected virtual string UseDictionary(string text)
         {
             return replacer.GetModified(text);
@@ -217,7 +224,7 @@ namespace ElfManipulator.Functions
         /// <param name="start">Index in the array at which scanning will begin</param>
         /// <param name="sequence">Sequence the array will be scanned for</param>
         /// <returns>
-        ///   The index of the next occurrence of the sequence of -1 if not found
+        ///   The index of the next occurrence of the sequence or -1 if not found
         /// </returns>
         protected virtual int findSequence(byte[] array, int start, byte[] sequence)
         {
